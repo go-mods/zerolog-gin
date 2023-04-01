@@ -1,5 +1,8 @@
 # zerolog-gin
-[![license](https://img.shields.io/github/license/go-mods/zerolog-gin)](./LICENSE)
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/go-mods/zerolog-gin.svg)](https://pkg.go.dev/github.com/go-mods/zerolog-gin)
+[![Go Report Card](https://goreportcard.com/badge/github.com/go-mods/zerolog-gin)](https://goreportcard.com/report/github.com/go-mods/zerolog-gin)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/go-mods/zerolog-gin/blob/master/LICENSE)
 
 Zerolog logger for gin
 
