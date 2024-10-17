@@ -2,9 +2,22 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/go-mods/zerolog-gin.svg)](https://pkg.go.dev/github.com/go-mods/zerolog-gin)
 [![Go Report Card](https://goreportcard.com/badge/github.com/go-mods/zerolog-gin)](https://goreportcard.com/report/github.com/go-mods/zerolog-gin)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/go-mods/zerolog-gin/blob/master/LICENSE)
+[![Release](https://img.shields.io/github/release/go-mods/zerolog-gin.svg?style=flat)](https://github.com/go-mods/zerolog-gin/releases)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/go-mods/zerolog-gin/blob/master/LICENSE.md)
 
-Zerolog logger for gin
+`zerolog-gin` is a middleware for the Gin web framework that integrates the `zerolog` logger, providing a fast and efficient logging solution for your web applications. Designed to be lightweight and performant, `zerolog-gin` captures and structures logs optimally, making debugging and performance analysis easier. With its compatibility with the advanced features of `zerolog`, it allows for customizing logs according to the specific needs of your application while maintaining a minimal memory footprint.
+
+## Installation
+
+To install the package, use the following command:
+
+```bash
+go get github.com/go-mods/zerolog-gin
+```
+
+## Usage
+
+Here is an example of how to use `zerolog-gin` with a Gin application:
 
 ```go
 package main
@@ -54,3 +67,7 @@ func main() {
     }
 }
 ```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.

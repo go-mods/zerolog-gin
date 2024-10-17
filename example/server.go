@@ -17,7 +17,7 @@ func main() {
 
 	// Create an instance of gin router
 	r := gin.New()
-	r.SetTrustedProxies([]string{"::1"})
+	_ = r.SetTrustedProxies([]string{"::1"})
 
 	// Add zerolog-gin as a middleware
 	r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Name: "server", Logger: &logger}))
