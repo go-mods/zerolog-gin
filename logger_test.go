@@ -37,12 +37,15 @@ func performRequest(r http.Handler, method, path string, headers ...header) *htt
 }
 
 func TestLogger(t *testing.T) {
-
 	buffer := new(bytes.Buffer)
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: buffer, NoColor: true}).With().Timestamp().Logger()
 
+	bufferInfo := new(bytes.Buffer)
+	loggerInfo := zerolog.New(zerolog.ConsoleWriter{Out: bufferInfo, NoColor: true}).With().Timestamp().Logger()
+
 	r := gin.New()
-	r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Name: "Test", Logger: &logger}))
+	r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Name: "Test", Logger: &logger, Level: "invalid"}))
+	r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Name: "TestInfo", Logger: &loggerInfo, Level: zerolog.LevelInfoValue}))
 	r.GET("/example", func(c *gin.Context) {})
 	r.POST("/example", func(c *gin.Context) {
 		c.String(http.StatusBadRequest, "ok")
@@ -59,18 +62,24 @@ func TestLogger(t *testing.T) {
 	assert.Contains(t, buffer.String(), "200")
 	assert.Contains(t, buffer.String(), "GET")
 	assert.Contains(t, buffer.String(), "/example")
+	assert.Contains(t, buffer.String(), "TRC")
+	assert.Contains(t, bufferInfo.String(), "INF")
 
 	buffer.Reset()
+	bufferInfo.Reset()
 	performRequest(r, "POST", "/example?a=100")
 	assert.Contains(t, buffer.String(), "400")
 	assert.Contains(t, buffer.String(), "POST")
 	assert.Contains(t, buffer.String(), "/example")
 	assert.Contains(t, buffer.String(), "WRN")
+	assert.Contains(t, bufferInfo.String(), "WRN")
 
 	buffer.Reset()
+	bufferInfo.Reset()
 	performRequest(r, "PUT", "/example?a=100")
 	assert.Contains(t, buffer.String(), "502")
 	assert.Contains(t, buffer.String(), "PUT")
 	assert.Contains(t, buffer.String(), "/example")
 	assert.Contains(t, buffer.String(), "ERR")
+	assert.Contains(t, bufferInfo.String(), "ERR")
 }

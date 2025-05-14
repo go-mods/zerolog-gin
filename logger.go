@@ -22,6 +22,10 @@ type Options struct {
 
 	// FieldsExclude defines contextual fields to not display in output.
 	FieldsExclude []string
+
+	// Level at which requests are logged (default: trace).
+	// Should be one of "trace", "debug", "info", "warn", "error", "fatal", "panic".
+	Level string
 }
 
 var (
@@ -58,6 +62,16 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 	// Logger to use
 	if opt.Logger == nil {
 		opt.Logger = &log.Logger
+	}
+
+	// Parsing is required since a zero-value string ("") maps to NoLevel which
+	// can be detected to fall back to the Trace level (current behavior).
+	// The zero-value of Level is Debug which cannot be differentiated from an
+	// explicitly set DebugLevel.
+	// ParseLevel returns NoLevel on error, which can be safely silenced.
+	level, _ := zerolog.ParseLevel(opt.Level)
+	if level == zerolog.NoLevel {
+		level = zerolog.TraceLevel
 	}
 
 	//
@@ -115,7 +129,7 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 			eventError = true
 			event = z.Error()
 		} else {
-			event = z.Trace()
+			event = z.WithLevel(level)
 		}
 
 		// add fields
