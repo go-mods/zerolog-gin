@@ -41,8 +41,10 @@ func main() {
     r := gin.New()
     r.SetTrustedProxies([]string{"::1"})
 
-    // Add zerolog-gin as a middleware
-    r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Name: "server", Logger: &logger}))
+    // Add zerolog-gin as a middleware and log requests at the info level.
+    r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{
+        Name: "server", Logger: &logger, Level: zerolog.InfoLevel.String(),
+    }))
 
     r.GET("/", func(c *gin.Context) {
         c.String(http.StatusOK, "hello, zerolog-gin example")
