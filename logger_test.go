@@ -2,15 +2,17 @@ package zerologgin_test
 
 import (
 	"bytes"
-	"github.com/gin-gonic/gin"
-	zerologgin "github.com/go-mods/zerolog-gin"
-	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+
+	zerologgin "github.com/go-mods/zerolog-gin"
 )
 
 func init() {

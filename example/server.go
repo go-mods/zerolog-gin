@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	zerologgin "github.com/go-mods/zerolog-gin"
-	"github.com/rs/zerolog"
 	"io"
 	"net/http"
 	"os"
+
+	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
+
+	zerologgin "github.com/go-mods/zerolog-gin"
 )
 
 func main() {
