@@ -68,6 +68,14 @@ func main() {
 }
 ```
 
+## Logged bodies
+
+The request and response bodies are not logged by default, because they can hold passwords, tokens or personal data, and they are not kept in memory. `FieldsExclude` replaces this default: pass an empty list to log both bodies. A logged body is kept entirely in memory until the log line is written, whatever its size.
+
+```go
+r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Logger: &logger, FieldsExclude: []string{}}))
+```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.

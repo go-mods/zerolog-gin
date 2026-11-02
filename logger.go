@@ -24,7 +24,9 @@ type Options struct {
 	// FieldsOrder defines the order of fields in output.
 	FieldsOrder []string
 
-	// FieldsExclude defines contextual fields to not display in output.
+	// FieldsExclude defines contextual fields to not display in output. When nil,
+	// PayloadFieldName and BodyFieldName are excluded: bodies can hold passwords,
+	// tokens or personal data. An empty slice excludes nothing and logs them.
 	FieldsExclude []string
 }
 
@@ -56,7 +58,10 @@ func Logger() gin.HandlerFunc {
 //
 // It works on a copy of opt, which is left untouched: changing opt afterwards
 // has no effect on the middleware. Only the logger opt.Logger points to is
-// still read on each request.
+// still read on each request. A nil opt gives the default options.
+//
+// A body whose field is excluded is not kept in memory. A body that is logged is
+// kept entirely, whatever its size, until the log line is written.
 //
 // TimestampFieldName is emitted once per line. When the logger already adds
 // that field, for instance through zerolog.Context.Timestamp, its value is kept
@@ -70,14 +75,22 @@ func Logger() gin.HandlerFunc {
 // the error in zerolog.ErrorFieldName.
 func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 	// Never write to the options of the caller
-	o := *opt
-	o.FieldsOrder = slices.Clone(opt.FieldsOrder)
-	o.FieldsExclude = slices.Clone(opt.FieldsExclude)
+	var o Options
+	if opt != nil {
+		o = *opt
+	}
+	o.FieldsOrder = slices.Clone(o.FieldsOrder)
+	o.FieldsExclude = slices.Clone(o.FieldsExclude)
 	opt = &o
 
 	// List of fields
 	if len(opt.FieldsOrder) == 0 {
 		opt.FieldsOrder = ginDefaultFieldsOrder()
+	}
+
+	// Fields left out unless asked for
+	if opt.FieldsExclude == nil {
+		opt.FieldsExclude = []string{PayloadFieldName, BodyFieldName}
 	}
 
 	// Logger to use
@@ -118,14 +131,17 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 		// Get payload from request
 		var payload []byte
 		var payloadErr error
-		if !opt.isExcluded(PayloadFieldName) {
+		if !opt.isExcluded(PayloadFieldName) && ctx.Request.Body != nil {
 			payload, payloadErr = io.ReadAll(ctx.Request.Body)
 			ctx.Request.Body = replayBody(payload, payloadErr)
 		}
 
 		// Get a copy of the body
-		w := &responseBodyWriter{body: &bytes.Buffer{}, ResponseWriter: ctx.Writer}
-		ctx.Writer = w
+		var responseBody *bytes.Buffer
+		if !opt.isExcluded(BodyFieldName) {
+			responseBody = &bytes.Buffer{}
+			ctx.Writer = &responseBodyWriter{body: responseBody, ResponseWriter: ctx.Writer}
+		}
 
 		// executes the pending handlers
 		ctx.Next()
@@ -220,8 +236,8 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 				event.Int(DataLengthFieldName, ctx.Writer.Size())
 			}
 			// Body field
-			if f == BodyFieldName && !opt.isExcluded(f) && len(w.body.String()) > 0 {
-				event.Str(BodyFieldName, w.body.String())
+			if f == BodyFieldName && responseBody != nil && responseBody.Len() > 0 {
+				event.Str(BodyFieldName, responseBody.String())
 			}
 		}
 

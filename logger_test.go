@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -252,7 +253,7 @@ func TestLoggerKeepsRequestBodyReadable(t *testing.T) {
 			var gotBody []byte
 			var gotErr error
 			r := gin.New()
-			r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Logger: &logger}))
+			r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Logger: &logger, FieldsExclude: []string{}}))
 			r.POST("/example", func(c *gin.Context) {
 				gotBody, gotErr = io.ReadAll(c.Request.Body)
 				c.Status(http.StatusNoContent)
@@ -279,6 +280,92 @@ func TestLoggerKeepsRequestBodyReadable(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoggerBodies(t *testing.T) {
+	const secret = "secret-request"
+	const answer = "secret-response"
+
+	tests := []struct {
+		name        string
+		exclude     []string
+		wantPayload bool
+		wantBody    bool
+	}{
+		{name: "left out by default"},
+		{name: "logged with an empty exclusion list", exclude: []string{}, wantPayload: true, wantBody: true},
+		{
+			name:        "another exclusion replaces the default",
+			exclude:     []string{zerologgin.MethodFieldName},
+			wantPayload: true,
+			wantBody:    true,
+		},
+		{name: "payload only", exclude: []string{zerologgin.BodyFieldName}, wantPayload: true},
+		{name: "response only", exclude: []string{zerologgin.PayloadFieldName}, wantBody: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buffer := new(bytes.Buffer)
+			logger := zerolog.New(buffer)
+
+			var received []byte
+			r := gin.New()
+			r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Logger: &logger, FieldsExclude: tt.exclude}))
+			r.POST("/example", func(c *gin.Context) {
+				received, _ = io.ReadAll(c.Request.Body)
+				c.String(http.StatusOK, answer)
+			})
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest("POST", "/example", strings.NewReader(secret)))
+
+			assert.Equal(t, secret, string(received), "the handler always gets the request body")
+			assert.Equal(t, answer, w.Body.String(), "the client always gets the response")
+			assert.Contains(t, buffer.String(), `"data_length":15`, "the size does not depend on the copy")
+
+			if tt.wantPayload {
+				assert.Contains(t, buffer.String(), secret)
+			} else {
+				assert.NotContains(t, buffer.String(), secret)
+			}
+			if tt.wantBody {
+				assert.Contains(t, buffer.String(), answer)
+			} else {
+				assert.NotContains(t, buffer.String(), answer)
+			}
+		})
+	}
+}
+
+func TestLoggerAcceptsNilRequestBody(t *testing.T) {
+	buffer := new(bytes.Buffer)
+	logger := zerolog.New(buffer)
+
+	r := gin.New()
+	r.Use(zerologgin.LoggerWithOptions(&zerologgin.Options{Logger: &logger, FieldsExclude: []string{}}))
+	r.GET("/example", func(c *gin.Context) {})
+
+	req, err := http.NewRequest(http.MethodGet, "/example", nil)
+	require.NoError(t, err)
+	require.Nil(t, req.Body)
+
+	assert.NotPanics(t, func() { r.ServeHTTP(httptest.NewRecorder(), req) })
+	assert.Contains(t, buffer.String(), `"status_code":200`)
+}
+
+func TestLoggerWithNilOptions(t *testing.T) {
+	buffer := new(bytes.Buffer)
+	old := log.Logger
+	t.Cleanup(func() { log.Logger = old })
+	log.Logger = zerolog.New(buffer)
+
+	r := gin.New()
+	r.Use(zerologgin.LoggerWithOptions(nil))
+	r.GET("/example", func(c *gin.Context) {})
+
+	assert.NotPanics(t, func() { performRequest(r, "GET", "/example") })
+	assert.Contains(t, buffer.String(), `"status_code":200`)
 }
 
 func TestStatusCodeFieldName(t *testing.T) {
