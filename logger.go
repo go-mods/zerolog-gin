@@ -2,8 +2,11 @@ package zerologgin
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,7 +39,7 @@ var (
 	PathFieldName       = "path"
 	PayloadFieldName    = "payload"
 	RefererFieldName    = "referer"
-	statusCodeFieldName = "status_code"
+	StatusCodeFieldName = "status_code"
 	DataLengthFieldName = "data_length"
 	BodyFieldName       = "body"
 )
@@ -49,8 +52,29 @@ func Logger() gin.HandlerFunc {
 	return LoggerWithOptions(o)
 }
 
-// LoggerWithOptions is a gin middleware which use zerolog
+// LoggerWithOptions is a gin middleware which use zerolog.
+//
+// It works on a copy of opt, which is left untouched: changing opt afterwards
+// has no effect on the middleware. Only the logger opt.Logger points to is
+// still read on each request.
+//
+// TimestampFieldName is emitted once per line. When the logger already adds
+// that field, for instance through zerolog.Context.Timestamp, its value is kept
+// and FieldsOrder and FieldsExclude have no effect on it. Otherwise the
+// middleware adds the time at which the request began. To find out, the first
+// logged request also writes a blank event to a private buffer, which runs the
+// hooks of the logger one extra time.
+//
+// When the request body cannot be read, the request goes on: the handler gets
+// the bytes that were read followed by the read error, and the log line carries
+// the error in zerolog.ErrorFieldName.
 func LoggerWithOptions(opt *Options) gin.HandlerFunc {
+	// Never write to the options of the caller
+	o := *opt
+	o.FieldsOrder = slices.Clone(opt.FieldsOrder)
+	o.FieldsExclude = slices.Clone(opt.FieldsExclude)
+	opt = &o
+
 	// List of fields
 	if len(opt.FieldsOrder) == 0 {
 		opt.FieldsOrder = ginDefaultFieldsOrder()
@@ -66,6 +90,12 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 	if err != nil {
 		hostname = "unknown"
 	}
+
+	// Checked on the first logged request: the logger pointed to may only be
+	// configured after the middleware has been created.
+	loggerHasTimestamp := sync.OnceValue(func() bool {
+		return emitsField(opt.Logger, TimestampFieldName)
+	})
 
 	return func(ctx *gin.Context) {
 		// get zerolog
@@ -87,9 +117,10 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 
 		// Get payload from request
 		var payload []byte
+		var payloadErr error
 		if !opt.isExcluded(PayloadFieldName) {
-			payload, _ = io.ReadAll(ctx.Request.Body)
-			ctx.Request.Body = io.NopCloser(bytes.NewReader(payload))
+			payload, payloadErr = io.ReadAll(ctx.Request.Body)
+			ctx.Request.Body = replayBody(payload, payloadErr)
 		}
 
 		// Get a copy of the body
@@ -105,18 +136,19 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 
 		//
 		var event *zerolog.Event
-		var eventError bool
-		var eventWarn bool
 
 		// set message level
 		if statusCode >= 400 && statusCode < 500 {
-			eventWarn = true
 			event = z.Warn()
 		} else if statusCode >= 500 {
-			eventError = true
 			event = z.Error()
 		} else {
 			event = z.Trace()
+		}
+
+		// report a body that could not be read entirely
+		if payloadErr != nil {
+			event.Err(payloadErr)
 		}
 
 		// add fields
@@ -150,7 +182,7 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 				event.Str(PayloadFieldName, string(payload))
 			}
 			// Timestamp field
-			if f == TimestampFieldName && !opt.isExcluded(f) {
+			if f == TimestampFieldName && !opt.isExcluded(f) && event.Enabled() && !loggerHasTimestamp() {
 				event.Time(TimestampFieldName, begin)
 			}
 			// Duration field
@@ -179,9 +211,9 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 			if f == RefererFieldName && !opt.isExcluded(f) && len(ctx.Request.Referer()) > 0 {
 				event.Str(RefererFieldName, ctx.Request.Referer())
 			}
-			// statusCode field
-			if f == statusCodeFieldName && !opt.isExcluded(f) {
-				event.Int(statusCodeFieldName, statusCode)
+			// StatusCode field
+			if f == StatusCodeFieldName && !opt.isExcluded(f) {
+				event.Int(StatusCodeFieldName, statusCode)
 			}
 			// DataLength field
 			if f == DataLengthFieldName && !opt.isExcluded(f) && ctx.Writer.Size() > 0 {
@@ -200,17 +232,11 @@ func LoggerWithOptions(opt *Options) gin.HandlerFunc {
 		}
 
 		// post the message
-		if eventError {
-			event.Msg(message)
-		} else if eventWarn {
-			event.Msg(message)
-		} else {
-			event.Msg(message)
-		}
+		event.Msg(message)
 	}
 }
 
-// gormDefaultFieldsOrder defines the default order of fields
+// ginDefaultFieldsOrder returns the default order of fields
 func ginDefaultFieldsOrder() []string {
 	return []string{
 		NameFieldName,
@@ -223,7 +249,7 @@ func ginDefaultFieldsOrder() []string {
 		TimestampFieldName,
 		DurationFieldName,
 		RefererFieldName,
-		statusCodeFieldName,
+		StatusCodeFieldName,
 		DataLengthFieldName,
 		BodyFieldName,
 	}
@@ -241,6 +267,41 @@ func (o *Options) isExcluded(field string) bool {
 	}
 
 	return false
+}
+
+// emitsField reports whether every event of z carries the given field on its
+// own, from its context or its hooks. The events are JSON unless zerolog is built
+// with the binary_log tag: it then always reports false.
+func emitsField(z *zerolog.Logger, field string) bool {
+	var buf bytes.Buffer
+	probe := z.Output(&buf).Sample(nil)
+	probe.Log().Msg("")
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(buf.Bytes(), &fields); err != nil {
+		return false
+	}
+	_, found := fields[field]
+	return found
+}
+
+// replayBody returns a request body that yields payload, then the error that
+// interrupted its reading, if any.
+func replayBody(payload []byte, err error) io.ReadCloser {
+	var body io.Reader = bytes.NewReader(payload)
+	if err != nil {
+		body = io.MultiReader(body, errorReader{err: err})
+	}
+	return io.NopCloser(body)
+}
+
+// errorReader is a reader that always fails with err.
+type errorReader struct {
+	err error
+}
+
+func (r errorReader) Read([]byte) (int, error) {
+	return 0, r.err
 }
 
 type responseBodyWriter struct {
